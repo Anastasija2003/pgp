@@ -1,4 +1,4 @@
-from rsa_generation import generateKeys
+from utils.rsa_generation import generateKeys
 from keyring import PublicKeyring, PrivateKeyring
 
 publicKeyring = PublicKeyring()

@@ -93,16 +93,16 @@ PUBLIC_KEYRING = [
 ]
 
 #from keyring import PublicKeyring, PrivateKeyring
-from rsa_generation import generateKeys
+from utils.rsa_generation import generateKeys
 #privateKeyring = PrivateKeyring()
 #publicKeyring = PublicKeyring()
 from app_core import publicKeyring, privateKeyring
 
 
-def new_key_id():
-    """Placeholder generisanje key_id-a - u pravoj verziji npr. poslednjih
-    8 bajtova SHA-1 hash-a javnog kljuca (kao u pravom PGP-u)."""
-    return binascii.hexlify(os.urandom(4)).decode().upper()
+# def new_key_id():
+#     """Placeholder generisanje key_id-a - u pravoj verziji npr. poslednjih
+#     8 bajtova SHA-1 hash-a javnog kljuca (kao u pravom PGP-u)."""
+#     return binascii.hexlify(os.urandom(4)).decode().upper()
 
 
 # =====================================================================
@@ -115,6 +115,7 @@ class KeyringFrame(ttk.Frame):
 
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True)
+        self.notebook = notebook
 
         # --- Tab: private keyring ---
         priv_tab = ttk.Frame(notebook)
@@ -159,6 +160,20 @@ class KeyringFrame(ttk.Frame):
         self.priv_tree.bind("<Double-1>", self._on_priv_double_click)
         self.pub_tree.bind("<Double-1>", self._on_pub_double_click)
         self.refresh()
+
+    def get_selected(self):
+        """Vraca (kind, entry) za trenutno selektovan red u aktivnom tabu.
+            kind je 'private' ili 'public'. (None, None) ako nista nije selektovano."""
+        tab_idx = self.notebook.index(self.notebook.select())
+        if tab_idx == 0:
+            sel = self.priv_tree.selection()
+            if sel:
+                return "private", self._priv_entries.get(sel[0])
+        else:
+            sel = self.pub_tree.selection()
+            if sel:
+                return "public", self._pub_entries.get(sel[0])
+        return None, None
 
     def refresh(self):
         self.priv_tree.delete(*self.priv_tree.get_children())
@@ -230,8 +245,8 @@ class SendMessageDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Slanje poruke")
-        self.geometry("500x500")
-        self.resizable(False, False)
+        self.geometry("600x600")
+        self.resizable(True, True)
 
         # --- Poruka koju kucamo ---
         tk.Label(self, text="Poruka:").pack(anchor="w", padx=10, pady=(10, 0))
@@ -249,6 +264,10 @@ class SendMessageDialog(tk.Toplevel):
         self.priv_dropdown.pack(fill="x", padx=10)
         if priv_values:
             self.priv_dropdown.current(0)
+        tk.Label(self, text="Lozinka za privatni ključ:").pack(
+            anchor="w", padx=10, pady=(6, 0))
+        self.priv_password_entry = tk.Entry(self, show="*")
+        self.priv_password_entry.pack(fill="x", padx=10)
 
         # --- Enkripcija - bira se iz PUBLIC keyring-a ---
         tk.Label(self, text="Javni ključ primaoca (public keyring):").pack(
@@ -322,9 +341,13 @@ class SendMessageDialog(tk.Toplevel):
         if self.opt_sign.get() and not self.priv_var.get():
             messagebox.showerror("Greška", "Izaberite privatni ključ za potpisivanje.")
             return
+        if self.opt_sign.get() and not self.priv_password_entry.get():
+            messagebox.showerror("Greška", "Unesite lozinku za privatni ključ.")
+            return
 
         # U pravoj aplikaciji ovde ide poziv:
         # controller.send_message(text, priv_key, pub_key, opts, algo, out_path)
+        password = self.priv_password_entry.get()
         summary = (
             f"Potpisano: {'da (' + self.priv_var.get() + ')' if self.opt_sign.get() else 'ne'}\n"
             f"Enkriptovano: {'da (' + self.pub_var.get() + ')' if self.opt_encrypt.get() else 'ne'}\n"
@@ -383,7 +406,7 @@ class ReceiveMessageDialog(tk.Toplevel):
         # PLACEHOLDER - u pravoj verziji ovde ide:
         # result = controller.receive_message(path)
         # (pretraga PRIVATE_KEYRING po key_id iz session key packeta,
-        #  pretraga PUBLIC_KEYRING po key_id iz signature packeta)
+        #  pretraga PUBLIC_KEYRING po key_id iz pgp_flow_utils packeta)
         for widget in self.result_frame.winfo_children():
             widget.destroy()
 
@@ -419,11 +442,13 @@ class ReceiveMessageDialog(tk.Toplevel):
 # i u PRIVATE_KEYRING ako se uvozi ceo par)
 # =====================================================================
 
+from utils.pem_utils import import_public_key, import_private_key
+
 class ImportKeyDialog(tk.Toplevel):
     def __init__(self, parent, on_imported):
         super().__init__(parent)
         self.title("Uvoz ključa")
-        self.geometry("420x340")
+        self.geometry("600x400")
         self.resizable(False, False)
         self.on_imported = on_imported
 
@@ -436,7 +461,7 @@ class ImportKeyDialog(tk.Toplevel):
                         value="pair", command=self.update_password_state).pack(
             anchor="w", padx=20)
 
-        tk.Label(self, text=".pem fajl:").pack(anchor="w", padx=10, pady=(12, 0))
+        tk.Label(self, text=".pem fajl za javni kljuc:").pack(anchor="w", padx=10, pady=(12, 0))
         file_frame = tk.Frame(self)
         file_frame.pack(fill="x", padx=10)
         self.pem_path_var = tk.StringVar()
@@ -445,12 +470,21 @@ class ImportKeyDialog(tk.Toplevel):
         tk.Button(file_frame, text="Izaberi fajl...",
                    command=self.browse_pem).pack(side="left", padx=(5, 0))
 
+        tk.Label(self, text=".pem fajl za privatni kljuc:").pack(anchor="w", padx=10, pady=(12, 0))
+        file_frame_private = tk.Frame(self)
+        file_frame_private.pack(fill="x", padx=10)
+        self.pem_private_path_var = tk.StringVar()
+        tk.Entry(file_frame_private, textvariable=self.pem_private_path_var,
+                 state="readonly").pack(side="left", fill="x", expand=True)
+        tk.Button(file_frame_private, text="Izaberi fajl...",
+                  command=self.browse_pem2).pack(side="left", padx=(5, 0))
+
         tk.Label(self, text="Naziv za prikaz (given name):").pack(
             anchor="w", padx=10, pady=(12, 0))
         self.given_name_var = tk.StringVar()
         tk.Entry(self, textvariable=self.given_name_var).pack(fill="x", padx=10)
 
-        tk.Label(self, text="Vlasnik (ime i prezime):").pack(
+        tk.Label(self, text="Vlasnik (email):").pack(
             anchor="w", padx=10, pady=(10, 0))
         self.owner_var = tk.StringVar()
         tk.Entry(self, textvariable=self.owner_var).pack(fill="x", padx=10)
@@ -478,6 +512,14 @@ class ImportKeyDialog(tk.Toplevel):
         if path:
             self.pem_path_var.set(path)
 
+    def browse_pem2(self):
+        path = filedialog.askopenfilename(
+            title="Izaberite .pem fajl",
+            filetypes=[("PEM fajlovi", "*.pem"), ("Svi fajlovi", "*.*")]
+        )
+        if path:
+            self.pem_private_path_var.set(path)
+
     def do_import(self):
         if not self.pem_path_var.get():
             messagebox.showerror("Greška", "Izaberite .pem fajl.")
@@ -489,37 +531,42 @@ class ImportKeyDialog(tk.Toplevel):
             messagebox.showerror("Greška", "Unesite lozinku privatnog ključa.")
             return
 
-        key_id = new_key_id()
+        public_key = import_public_key(self.pem_path_var.get())
+        #key_id = new_key_id()
         given_name = self.given_name_var.get()
-        owner = self.owner_var.get()
+        email = self.owner_var.get()
+        publicKeyring.add(public_key, email, given_name)
+        password = self.password_entry.get()
 
         # Javni deo uvek ide u PUBLIC_KEYRING
-        PUBLIC_KEYRING.append({
-            "key_id": key_id,
-            "given_name": given_name,
-            "owner": owner,
-            "email": "",
-            "key_size": 2048,
-            "public_key_pem": f"-----BEGIN PUBLIC KEY-----\n...(učitano iz {self.pem_path_var.get()})...\n-----END PUBLIC KEY-----\n",
-        })
+        # PUBLIC_KEYRING.append({
+        #     "key_id": key_id,
+        #     "given_name": given_name,
+        #     "owner": owner,
+        #     "email": "",
+        #     "key_size": 2048,
+        #     "public_key_pem": f"-----BEGIN PUBLIC KEY-----\n...(učitano iz {self.pem_path_var.get()})...\n-----END PUBLIC KEY-----\n",
+        # })
 
         # Ako se uvozi ceo par, privatni deo ide i u PRIVATE_KEYRING
         if self.import_type.get() == "pair":
-            PRIVATE_KEYRING.append({
-                "key_id": key_id,
-                "given_name": given_name,
-                "name": owner,
-                "email": "",
-                "key_size": 2048,
-                "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
-                "public_key_pem": PUBLIC_KEYRING[-1]["public_key_pem"],
-                "private_key_pem": f"-----BEGIN ENCRYPTED PRIVATE KEY-----\n...(učitano, zaštićeno unetom lozinkom)...\n-----END ENCRYPTED PRIVATE KEY-----\n",
-            })
+            private_key = import_private_key(self.pem_private_path_var.get(), password)
+            privateKeyring.add(email, public_key, private_key, password, given_name)
+            # PRIVATE_KEYRING.append({
+            #     "key_id": key_id,
+            #     "given_name": given_name,
+            #     "name": owner,
+            #     "email": "",
+            #     "key_size": 2048,
+            #     "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            #     "public_key_pem": PUBLIC_KEYRING[-1]["public_key_pem"],
+            #     "private_key_pem": f"-----BEGIN ENCRYPTED PRIVATE KEY-----\n...(učitano, zaštićeno unetom lozinkom)...\n-----END ENCRYPTED PRIVATE KEY-----\n",
+            # })
 
         kind = "ceo par ključeva" if self.import_type.get() == "pair" else "javni ključ"
         messagebox.showinfo(
             "Uvezeno (placeholder)",
-            f"Uvezen {kind} iz:\n{self.pem_path_var.get()}\n\nNaziv: {given_name}\nKey ID: {key_id}"
+            f"Uvezen {kind} iz:\n{self.pem_path_var.get()}\n\nNaziv: {given_name}\n"
         )
         self.on_imported()
         self.destroy()
@@ -574,7 +621,7 @@ class GenerateKeyDialog(tk.Toplevel):
             messagebox.showerror("Greška", "Popunite ime, email i lozinku.")
             return
 
-        key_id = new_key_id()
+        # key_id = new_key_id()
         timestamp = datetime.datetime.now().isoformat(timespec="seconds")
         size = int(self.size_var.get())
         password = self.pass_entry.get().strip()
@@ -596,7 +643,7 @@ class GenerateKeyDialog(tk.Toplevel):
 
         messagebox.showinfo(
             "Generisano (placeholder)",
-            f"Novi par ključeva ({size} bita)\nKey ID: {key_id}\nVlasnik: {name} <{email}>"
+            f"Novi par ključeva ({size} bita)\nVlasnik: {name} <{email}>"
         )
         self.on_generated()
         self.destroy()
@@ -605,6 +652,95 @@ class GenerateKeyDialog(tk.Toplevel):
 # =====================================================================
 # GLAVNI PROZOR
 # =====================================================================
+
+from utils.pem_utils import export_public_key, export_private_key
+
+class ExportKeyDialog(tk.Toplevel):
+    """
+    kind: "private" ili "public" - iz kog keyring-a je ključ selektovan.
+    entry: PrivateKeyringEntry ili PublicKeyEntry.
+    """
+    def __init__(self, parent, kind, entry):
+        super().__init__(parent)
+        self.title("Izvoz ključa")
+        self.geometry("460x320")
+        self.resizable(False, False)
+        self.kind = kind
+        self.entry = entry
+
+        tk.Label(self, text=f"Ključ: {entry.given_name}  (Key ID: {entry.key_id})").pack(
+            anchor="w", padx=10, pady=(10, 0))
+
+        tk.Label(self, text="Šta izvozite:").pack(anchor="w", padx=10, pady=(12, 0))
+        self.export_type = tk.StringVar(value="public")
+        tk.Radiobutton(self, text="Samo javni ključ", variable=self.export_type,
+                        value="public").pack(anchor="w", padx=20)
+
+        both_state = "normal" if kind == "private" else "disabled"
+        tk.Radiobutton(self, text="Javni i privatni ključ (ceo par)", variable=self.export_type,
+                        value="pair", state=both_state).pack(anchor="w", padx=20)
+
+        if kind == "public":
+            tk.Label(self, text="(Ključ je iz public keyring-a - nema privatnog dela.)",
+                      fg="gray").pack(anchor="w", padx=20, pady=(0, 5))
+
+        tk.Label(self, text="Folder za izvoz:").pack(anchor="w", padx=10, pady=(12, 0))
+        folder_frame = tk.Frame(self)
+        folder_frame.pack(fill="x", padx=10)
+        self.folder_var = tk.StringVar()
+        tk.Entry(folder_frame, textvariable=self.folder_var, state="readonly").pack(
+            side="left", fill="x", expand=True)
+        tk.Button(folder_frame, text="Izaberi folder...",
+                   command=self.browse_folder).pack(side="left", padx=(5, 0))
+
+        tk.Label(self, text="Naziv fajla (bez ekstenzije):").pack(anchor="w", padx=10, pady=(12, 0))
+        self.filename_var = tk.StringVar(value=entry.given_name.replace(" ", "_"))
+        tk.Entry(self, textvariable=self.filename_var).pack(fill="x", padx=10)
+
+        tk.Button(self, text="Izvezi", command=self.do_export,
+                    bg="#2e7d32", fg="white").pack(pady=16)
+
+    def browse_folder(self):
+        path = filedialog.askdirectory(title="Izaberite folder za izvoz")
+        if path:
+            self.folder_var.set(path)
+
+    def do_export(self):
+        folder = self.folder_var.get()
+        filename = self.filename_var.get().strip()
+
+        if not folder:
+            messagebox.showerror("Greška", "Izaberite folder za izvoz.")
+            return
+        if not filename:
+            messagebox.showerror("Greška", "Unesite naziv fajla.")
+            return
+
+        public_path = os.path.join(folder, f"{filename}_public.pem")
+        try:
+            export_public_key(self.entry.public_key, public_path)
+        except OSError as e:
+            messagebox.showerror("Greška", f"Ne mogu da sačuvam javni ključ:\n{e}")
+            return
+
+        written = [public_path]
+
+        if self.export_type.get() == "pair":
+            if self.kind != "private":
+                messagebox.showerror("Greška", "Ovaj ključ nema privatni deo za izvoz.")
+                return
+            private_path = os.path.join(folder, f"{filename}_private.pem")
+            try:
+                export_private_key(self.entry.encrypted_private_key, private_path)
+            except OSError as e:
+                messagebox.showerror("Greška", f"Ne mogu da sačuvam privatni ključ:\n{e}")
+                return
+            written.append(private_path)
+
+        messagebox.showinfo("Izvezeno", "Sačuvano:\n" + "\n".join(written))
+        self.destroy()
+
+import traceback
 
 class MainWindow(tk.Tk):
     def __init__(self):
@@ -629,12 +765,15 @@ class MainWindow(tk.Tk):
                    command=self.open_generate_dialog).pack(side="left", padx=(0, 5))
         tk.Button(btn_frame, text="Uvezi iz .pem",
                    command=self.open_import_dialog).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Izvezi ključeve",
+                  command=self.open_export_dialog).pack(side="left", padx=5)
         tk.Button(btn_frame, text="Pošalji poruku",
                    command=self.open_send_dialog, bg="#1565c0", fg="white").pack(
             side="right", padx=5)
         tk.Button(btn_frame, text="Primi poruku",
                    command=self.open_receive_dialog, bg="#1565c0", fg="white").pack(
             side="right", padx=(5, 0))
+        self.report_callback_exception = self.handle_exception
 
     def open_send_dialog(self):
         SendMessageDialog(self)
@@ -645,8 +784,23 @@ class MainWindow(tk.Tk):
     def open_import_dialog(self):
         ImportKeyDialog(self, on_imported=self.keyring_frame.refresh)
 
+    def open_export_dialog(self):
+        kind, entry = self.keyring_frame.get_selected()
+        if entry is None:
+            messagebox.showerror(
+                "Greška",
+                "Izaberite ključ klikom na red u tabeli (private ili public keyring) koji želite da izvezete."
+            )
+            return
+        ExportKeyDialog(self, kind, entry)
+
     def open_generate_dialog(self):
         GenerateKeyDialog(self, on_generated=self.keyring_frame.refresh)
+
+    def handle_exception(self, exc_type, exc_value, exc_traceback):
+        error_text = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        print(error_text)  # i dalje ispiši u konzolu, korisno za debug
+        messagebox.showerror("Greška", f"{exc_type.__name__}: {exc_value}")
 
 
 if __name__ == "__main__":
