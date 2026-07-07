@@ -96,7 +96,7 @@ PUBLIC_KEYRING = [
 from utils.rsa_generation import generateKeys
 #privateKeyring = PrivateKeyring()
 #publicKeyring = PublicKeyring()
-from app_core import publicKeyring, privateKeyring, save_keyrings
+from app_core import publicKeyring, privateKeyring, save_keyrings, delete_key
 from pgp_flow.receive_flow import start_receive, finish_receive, UnknownKeyError
 
 
@@ -813,6 +813,8 @@ class MainWindow(tk.Tk):
                    command=self.open_import_dialog).pack(side="left", padx=5)
         tk.Button(btn_frame, text="Izvezi ključeve",
                   command=self.open_export_dialog).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Obriši ključ",
+                  command=self.delete_selected_key).pack(side="left", padx=5)
         tk.Button(btn_frame, text="Pošalji poruku",
                    command=self.open_send_dialog, bg="#1565c0", fg="white").pack(
             side="right", padx=5)
@@ -847,6 +849,26 @@ class MainWindow(tk.Tk):
 
     def open_generate_dialog(self):
         GenerateKeyDialog(self, on_generated=self.keyring_frame.refresh)
+
+    def delete_selected_key(self):
+        kind, entry = self.keyring_frame.get_selected()
+        if entry is None:
+            messagebox.showerror(
+                "Greška",
+                "Izaberite ključ klikom na red u tabeli (private ili public keyring) koji želite da obrišete."
+            )
+            return
+
+        confirmed = messagebox.askyesno(
+            "Potvrda brisanja",
+            f"Da li ste sigurni da želite da obrišete ključ '{entry.given_name}'?\n"
+            "Ova akcija je nepovratna."
+        )
+        if not confirmed:
+            return
+
+        delete_key(entry.key_id)
+        self.keyring_frame.refresh()
 
     def handle_exception(self, exc_type, exc_value, exc_traceback):
         error_text = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
