@@ -240,6 +240,7 @@ class KeyDetailsDialog(tk.Toplevel):
 # =====================================================================
 # DIJALOG: SLANJE PORUKE
 # =====================================================================
+from pgp_flow.send_flow import send_message
 
 class SendMessageDialog(tk.Toplevel):
     def __init__(self, parent):
@@ -258,7 +259,8 @@ class SendMessageDialog(tk.Toplevel):
         tk.Label(self, text="Privatni ključ za potpisivanje (private keyring):").pack(
             anchor="w", padx=10, pady=(12, 0))
         self.priv_var = tk.StringVar()
-        priv_values = [k["given_name"] for k in PRIVATE_KEYRING]
+        priv_values = [k.given_name for k in privateKeyring.getAll()]
+        self.priv_entries = list(privateKeyring.getAll())
         self.priv_dropdown = ttk.Combobox(
             self, textvariable=self.priv_var, values=priv_values, state="readonly")
         self.priv_dropdown.pack(fill="x", padx=10)
@@ -273,7 +275,8 @@ class SendMessageDialog(tk.Toplevel):
         tk.Label(self, text="Javni ključ primaoca (public keyring):").pack(
             anchor="w", padx=10, pady=(10, 0))
         self.pub_var = tk.StringVar()
-        pub_values = [f'{k["given_name"]} ({k["owner"]})' for k in PUBLIC_KEYRING]
+        pub_values = [f'{k.given_name} ({k.user_id})' for k in publicKeyring.getAll()]
+        self.public_entries = list(publicKeyring.getAll())
         self.pub_dropdown = ttk.Combobox(
             self, textvariable=self.pub_var, values=pub_values, state="readonly")
         self.pub_dropdown.pack(fill="x", padx=10)
@@ -322,6 +325,18 @@ class SendMessageDialog(tk.Toplevel):
         tk.Button(self, text="Pošalji poruku", command=self.do_send,
                     bg="#2e7d32", fg="white").pack(pady=16)
 
+    def get_selected_priv_entry(self):
+        id = self.priv_dropdown.current()
+        if id == -1:
+            return None
+        return self.priv_entries[id]
+
+    def get_selected_public_entry(self):
+        id = self.pub_dropdown.current()
+        if id == -1:
+            return None
+        return self.public_entries[id]
+
     def browse_output(self):
         path = filedialog.asksaveasfilename(
             title="Sačuvaj poruku kao",
@@ -332,6 +347,9 @@ class SendMessageDialog(tk.Toplevel):
             self.out_path_var.set(path)
 
     def do_send(self):
+        message = self.message_text.get("1.0", "end-1c")
+        if not message:
+            messagebox.showerror("Greška", "Morate uneti poruku.")
         if not self.out_path_var.get():
             messagebox.showerror("Greška", "Izaberite gde da sačuvate poruku.")
             return
@@ -348,15 +366,29 @@ class SendMessageDialog(tk.Toplevel):
         # U pravoj aplikaciji ovde ide poziv:
         # controller.send_message(text, priv_key, pub_key, opts, algo, out_path)
         password = self.priv_password_entry.get()
-        summary = (
-            f"Potpisano: {'da (' + self.priv_var.get() + ')' if self.opt_sign.get() else 'ne'}\n"
-            f"Enkriptovano: {'da (' + self.pub_var.get() + ')' if self.opt_encrypt.get() else 'ne'}\n"
-            f"Kompresija: {'da' if self.opt_compress.get() else 'ne'}\n"
-            f"Radix-64: {'da' if self.opt_radix64.get() else 'ne'}\n"
-            f"Algoritam: {self.algo_var.get()}\n"
-            f"Fajl: {self.out_path_var.get()}"
-        )
-        messagebox.showinfo("Poruka sačuvana (placeholder)", summary)
+        publicEntry = self.get_selected_public_entry()
+        privateEntry = self.get_selected_priv_entry()
+        privateKey = privateEntry.get_private_key(password) if privateEntry else None
+        sign_key_id = privateEntry.key_id if privateEntry else None
+        encrypt_key_id = publicEntry.key_id if publicEntry else None
+        publicKey = publicEntry.public_key if publicEntry else None
+        options = dict()
+        options["signed"] = self.opt_sign.get()
+        options["compressed"] = self.opt_compress.get()
+        options["encrypted"] = self.opt_encrypt.get()
+        options["radix"] = self.opt_radix64.get()
+        algorithm = self.algo_var.get().strip()
+        out_path = self.out_path_var.get().strip()
+        send_message(out_path, message, options, algorithm, privateKey, publicKey, sign_key_id, encrypt_key_id)
+        # summary = (
+        #     f"Potpisano: {'da (' + self.priv_var.get() + ')' if self.opt_sign.get() else 'ne'}\n"
+        #     f"Enkriptovano: {'da (' + self.pub_var.get() + ')' if self.opt_encrypt.get() else 'ne'}\n"
+        #     f"Kompresija: {'da' if self.opt_compress.get() else 'ne'}\n"
+        #     f"Radix-64: {'da' if self.opt_radix64.get() else 'ne'}\n"
+        #     f"Algoritam: {self.algo_var.get()}\n"
+        #     f"Fajl: {self.out_path_var.get()}"
+        # )
+        # messagebox.showinfo("Poruka sačuvana (placeholder)", summary)
         self.destroy()
 
 
