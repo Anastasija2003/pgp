@@ -1,6 +1,8 @@
 from pgp_flow_utils.message_header import get_message
 from pgp_flow_utils.signature import sign
 from pgp_flow_utils.compression import compress, decompress
+from pgp_flow_utils.encryption import encrypt, algorithms
+from pgp_flow_utils.radix64 import convert_to_radix64, convert_from_radix64
 from utils.rsa_generation import generateKeys
 from keyring import PublicKeyring, PrivateKeyring
 from datetime import datetime
@@ -60,6 +62,32 @@ def decrypt_signature(message_bytes: bytes, public_key: rsa.RSAPublicKey):
     except InvalidSignature:
         print("Signature invalid")
 
+def decrypt_enc_header(encrypted: bytes, alg: str):
+    algorithm = algorithms[alg]
+    offset = 0
+    key_id = encrypted[offset:offset+8]
+    offset += 8
+    print(int.from_bytes(key_id, byteorder="big"))
+    keylen = int.from_bytes(encrypted[offset:offset+2], byteorder="big")
+    offset+=2
+    print(keylen)
+    encrypted_key = encrypted[offset:offset+keylen]
+    offset += keylen
+    key = private.decrypt(
+        encrypted_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA1()),
+            algorithm=hashes.SHA1(),
+            label=None
+        )
+    )
+    print(key)
+    iv = encrypted[offset:offset+algorithm.IV_SIZE]
+    offset += algorithm.IV_SIZE
+    encrypted_message = encrypted[offset:]
+    message = algorithm.decrypt(iv+encrypted_message)
+    print(message)
+
 
 def generateKeyID(publicKey):
     n = publicKey.public_numbers().n
@@ -75,6 +103,8 @@ message = "Ovo je poruka!"
 message_packet = get_message(message)
 hash = sign(message_packet, generateKeyID(public),private)
 compressed = compress(hash)
+encrypted = encrypt(compressed, public, generateKeyID(public), "3DES")
+
 
 print(message)
 print(message.encode("utf-8"))
@@ -88,3 +118,9 @@ print(decompress(compressed))
 print(len(compressed))
 print(len(hash))
 print(hash == decompress(compressed))
+print("###################################################################")
+print(encrypted)
+decrypt_enc_header(encrypted, "3DES")
+print(compressed)
+print(convert_to_radix64(encrypted).decode("ascii"))
+print(convert_from_radix64(convert_to_radix64(encrypted)))
