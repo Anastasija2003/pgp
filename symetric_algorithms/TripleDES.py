@@ -1,4 +1,4 @@
-import os
+import secrets
 from cryptography.hazmat.primitives.ciphers import Cipher, modes
 from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES as _TripleDESAlgorithm
 
@@ -9,7 +9,7 @@ class TripleDES(SymetricAlgorithm):
     IV_SIZE = 8
 
     def encrypt(self, input: bytes) -> bytes:
-        iv = os.urandom(self.IV_SIZE)
+        iv = secrets.token_bytes(self.IV_SIZE)
         encryptor = Cipher(_TripleDESAlgorithm(self.key), modes.CFB(iv)).encryptor()
         ciphertext = encryptor.update(input)
         return iv + ciphertext

@@ -1,4 +1,4 @@
-import os
+import secrets
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from symetric_algorithms.SymetricAlgorithm import SymetricAlgorithm
@@ -8,7 +8,7 @@ class AES128(SymetricAlgorithm):
     IV_SIZE = 16
 
     def encrypt(self, input: bytes) -> bytes:
-        iv = os.urandom(self.IV_SIZE)
+        iv = secrets.token_bytes(self.IV_SIZE)
         encryptor = Cipher(algorithms.AES128(self.key), modes.CFB(iv)).encryptor()
         ciphertext = encryptor.update(input)
         return iv + ciphertext
