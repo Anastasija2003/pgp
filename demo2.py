@@ -369,7 +369,7 @@ class SendMessageDialog(tk.Toplevel):
         password = self.priv_password_entry.get()
         publicEntry = self.get_selected_public_entry()
         privateEntry = self.get_selected_priv_entry()
-        privateKey = privateEntry.get_private_key(password) if privateEntry else None
+        privateKey = privateEntry.get_private_key(password) if (privateEntry and self.opt_sign.get()) else None
         sign_key_id = privateEntry.key_id if privateEntry else None
         encrypt_key_id = publicEntry.key_id if publicEntry else None
         publicKey = publicEntry.public_key if publicEntry else None
