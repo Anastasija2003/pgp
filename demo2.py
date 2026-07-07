@@ -96,7 +96,7 @@ PUBLIC_KEYRING = [
 from utils.rsa_generation import generateKeys
 #privateKeyring = PrivateKeyring()
 #publicKeyring = PublicKeyring()
-from app_core import publicKeyring, privateKeyring
+from app_core import publicKeyring, privateKeyring, save_keyrings
 
 
 # def new_key_id():
@@ -774,6 +774,11 @@ class MainWindow(tk.Tk):
                    command=self.open_receive_dialog, bg="#1565c0", fg="white").pack(
             side="right", padx=(5, 0))
         self.report_callback_exception = self.handle_exception
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def on_close(self):
+        save_keyrings()
+        self.destroy()
 
     def open_send_dialog(self):
         SendMessageDialog(self)
