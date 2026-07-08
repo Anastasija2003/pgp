@@ -1,7 +1,5 @@
 __pycache__/
 *.pyc
 
-public_keyring.json
-private_keyring.json
 
 .idea/

@@ -742,7 +742,7 @@ class ExportKeyDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Izvoz ključa")
         self.geometry("460x320")
-        self.resizable(False, False)
+        self.resizable(True, True)
         self.kind = kind
         self.entry = entry
 
